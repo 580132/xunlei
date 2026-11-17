@@ -30,11 +30,12 @@ jobs:
           cache: true
 
       - name: Download SPK packages
+        working-directory: spk
         run: |
           # 仓库里只保存了版本号，删除后强制重新下载最新的 spk
-          rm -f spk/nasxunlei-*.txt
-          bash spk/update.sh
-          ls -lh spk/*.spk
+          rm -f nasxunlei-*.txt
+          bash update.sh
+          ls -lh *.spk
 
       - name: Build xlp binaries
         run: |
