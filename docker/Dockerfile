@@ -1,44 +1,65 @@
-FROM --platform=$BUILDPLATFORM ubuntu:focal AS temp
+FROM --platform=$BUILDPLATFORM alpine:3.22 AS temp
 ARG TARGETARCH
 
 RUN [ "${TARGETARCH}" = "arm64" -o "${TARGETARCH}" = "amd64" ] && echo ok || exit 1
 
-ENV LANG=C.UTF-8 LANG=zh_CN.UTF-8 LANGUAGE=zh_CN.UTF-8 LC_ALL=C
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
-RUN sed -i 's/archive.ubuntu.com/mirrors.bfsu.edu.cn/g' /etc/apt/sources.list \
-  && sed -i 's/security.ubuntu.com/mirrors.bfsu.edu.cn/g' /etc/apt/sources.list \
-  && sed -i 's/ports.ubuntu.com/mirrors.bfsu.edu.cn/g' /etc/apt/sources.list \
-  && DEBIAN_FRONTEND=noninteractive apt-get update && apt-get -y --no-install-recommends install tzdata ca-certificates xz-utils \
-  && rm -rf /var/lib/apt/lists/* \
-  && echo "Asia/Shanghai" >/etc/timezone \
-  && rm -f /etc/localtime && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+RUN apk add --no-cache ca-certificates tzdata \
+  && mkdir -p /rootfs/etc/ssl/certs \
+  && cp -a /etc/ssl/certs/ca-certificates.crt /rootfs/etc/ssl/certs/ \
+  && cp -a /usr/share/zoneinfo/Asia/Shanghai /rootfs/etc/localtime \
+  && echo "Asia/Shanghai" >/rootfs/etc/timezone
 
-RUN mkdir -p /rootfs/etc/ssl/certs \
-  && cp --parents /etc/ssl/certs/ca-certificates.crt /rootfs/ \
-  && cp --parents /etc/timezone /rootfs/ \
-  && cp --parents /etc/localtime /rootfs/ \
-  && cp --parents /etc/apt/sources.list /rootfs/
+COPY bin/xlp-${TARGETARCH} /rootfs/bin/xlp
 
-WORKDIR /spk
+# 迅雷主程序是 glibc 二进制，Alpine(musl) 无法直接运行，
+# 从 ubuntu:focal 提取 glibc 运行库作为兼容层，放入 /lib 下，
+# 这样 chroot 时绑定 /lib、/lib64 即可正常加载。
+FROM ubuntu:focal AS glibc
+ARG TARGETARCH
 
-# COPY spk/*.spk ./
-# RUN SYS_ARCH=$([ "${TARGETARCH}" = "amd64" ] && echo "x86_64" || echo "armv8") \
-#   && VER=$(ls | grep "${SYS_ARCH}" | grep -Eo "v[0-9]+.[0-9]+.[0-9]+" | sort -Vr | head -n1) \
-#   && NAME=$(ls | grep ${SYS_ARCH} | grep ${VER} | head -n1) \
-#   && mkdir -p /rootfs/var/packages/pan-xunlei-com/target \
-#   && [ -f "${NAME}" ] && tar -Oxf ${NAME} package.tgz | tar -JxC /rootfs/var/packages/pan-xunlei-com/target --wildcards 'bin/bin/*' 'ui/index.cgi' \
-#   || exit 1
+RUN set -eux; \
+  case "${TARGETARCH}" in \
+  amd64) ARCH=x86_64-linux-gnu; LOADER=ld-linux-x86-64.so.2 ;; \
+  arm64) ARCH=aarch64-linux-gnu; LOADER=ld-linux-aarch64.so.1 ;; \
+  *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+  esac; \
+  mkdir -p "/glibc/lib/${ARCH}" /glibc/lib64; \
+  for lib in \
+  "${LOADER}" \
+  libc.so.6 \
+  libm.so.6 \
+  libdl.so.2 \
+  libpthread.so.0 \
+  librt.so.1 \
+  libresolv.so.2 \
+  libutil.so.1 \
+  libcrypt.so.1 \
+  libanl.so.1 \
+  libstdc++.so.6 \
+  libgcc_s.so.1 \
+  libnss_dns.so.2 \
+  libnss_files.so.2 \
+  libnss_compat.so.2; do \
+  cp -L "/lib/${ARCH}/${lib}" "/glibc/lib/${ARCH}/${lib}"; \
+  done; \
+  if [ "${TARGETARCH}" = "arm64" ]; then \
+  ln -sf "../lib/${ARCH}/${LOADER}" "/glibc/lib/${LOADER}"; \
+  else \
+  ln -sf "../lib/${ARCH}/${LOADER}" "/glibc/lib64/${LOADER}"; \
+  fi
 
-COPY bin/xlp-${TARGETARCH} /rootfs/usr/bin/xlp
-
-FROM ubuntu:focal
+FROM alpine:3.22
 
 LABEL org.opencontainers.image.authors=cnk3x
 LABEL org.opencontainers.image.source=https://github.com/cnk3x/xunlei
 
+COPY --from=glibc /glibc/lib/ /lib/
+COPY --from=glibc /glibc/lib64/ /lib64/
 COPY --from=temp /rootfs/ /
 
-ENV LANG=C.UTF-8 LANG=zh_CN.UTF-8 LANGUAGE=zh_CN.UTF-8 LC_ALL=C \
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 \
   XL_DEBUG=false \
   XL_DASHBOARD_PORT=2345 \
   XL_DASHBOARD_USERNAME= \
