@@ -14,9 +14,9 @@ RUN apk add --no-cache ca-certificates tzdata \
 COPY bin/xlp-${TARGETARCH} /rootfs/bin/xlp
 
 # 迅雷主程序是 glibc 二进制，Alpine(musl) 无法直接运行，
-# 从 ubuntu:focal 提取 glibc 运行库作为兼容层，放入 /lib 下，
+# 从 ubuntu:26.04 提取最新 glibc / libstdc++ 运行库作为兼容层，放入 /lib 下，
 # 这样 chroot 时绑定 /lib、/lib64 即可正常加载。
-FROM ubuntu:focal AS glibc
+FROM ubuntu:26.04 AS glibc
 ARG TARGETARCH
 
 RUN set -eux; \
