@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM alpine:3.22 AS temp
+FROM --platform=$BUILDPLATFORM alpine:3.24 AS temp
 ARG TARGETARCH
 
 RUN [ "${TARGETARCH}" = "arm64" -o "${TARGETARCH}" = "amd64" ] && echo ok || exit 1
@@ -50,7 +50,7 @@ RUN set -eux; \
   ln -sf "../lib/${ARCH}/${LOADER}" "/glibc/lib64/${LOADER}"; \
   fi
 
-FROM alpine:3.22
+FROM alpine:3.24
 
 LABEL org.opencontainers.image.authors=cnk3x
 LABEL org.opencontainers.image.source=https://github.com/cnk3x/xunlei
